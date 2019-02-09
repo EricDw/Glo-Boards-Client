@@ -2,18 +2,24 @@ package com.example.glodroid
 
 import android.content.Intent
 import android.os.Bundle
-import androidx.appcompat.app.AppCompatActivity
-import androidx.recyclerview.widget.RecyclerView
-import com.google.android.material.snackbar.Snackbar
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.TextView
-
-import com.example.glodroid.dummy.DummyContent
+import androidx.appcompat.app.AppCompatActivity
+import androidx.recyclerview.widget.RecyclerView
+import com.example.glodroid.dtos.BoardColumnDTO
+import com.example.glodroid.dtos.BoardsDTO
+import com.google.android.material.snackbar.Snackbar
 import kotlinx.android.synthetic.main.activity_item_list.*
-import kotlinx.android.synthetic.main.item_list_content.view.*
 import kotlinx.android.synthetic.main.item_list.*
+import kotlinx.android.synthetic.main.item_list_content.view.*
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.launch
+import retrofit2.Retrofit
+import retrofit2.converter.gson.GsonConverterFactory
+import kotlin.random.Random
 
 /**
  * An activity representing a list of Pings. This activity
@@ -31,6 +37,18 @@ class ItemListActivity : AppCompatActivity() {
      */
     private var twoPane: Boolean = false
 
+
+    private val gloService: GloService by lazy {
+        Retrofit.Builder().apply {
+            baseUrl(GLO_BASE_URL)
+            addConverterFactory(GsonConverterFactory.create())
+        }.build().run {
+            create(GloService::class.java)
+        }
+    }
+
+    private lateinit var boardDTOs: List<BoardsDTO>
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_item_list)
@@ -39,8 +57,22 @@ class ItemListActivity : AppCompatActivity() {
         toolbar.title = title
 
         fab.setOnClickListener { view ->
-            Snackbar.make(view, "Replace with your own action", Snackbar.LENGTH_LONG)
-                .setAction("Action", null).show()
+
+            GlobalScope.launch(Dispatchers.IO) {
+                val call = gloService.putColumn(
+                    GLO_API_KEY, boardDTOs.first().id, BoardColumnDTO(
+                        "test${Random.nextInt(0, 100)}"
+                    )
+                ).execute()
+
+                updateBoards()
+
+                launch(Dispatchers.Main) {
+                    Snackbar.make(view, "${call.isSuccessful}", Snackbar.LENGTH_LONG)
+                        .setAction("Action", null).show()
+                }
+            }
+
         }
 
         if (item_detail_container != null) {
@@ -51,16 +83,34 @@ class ItemListActivity : AppCompatActivity() {
             twoPane = true
         }
 
-        setupRecyclerView(item_list)
+        updateBoards()
+
+    }
+
+    private fun updateBoards() {
+        GlobalScope.launch(Dispatchers.IO) {
+            val response = gloService.getBoards(
+                GLO_API_KEY
+            ).execute()
+
+            response.body()?.run {
+                boardDTOs = this
+            }
+
+            GlobalScope.launch(Dispatchers.Main) {
+                setupRecyclerView(item_list)
+            }
+
+        }
     }
 
     private fun setupRecyclerView(recyclerView: RecyclerView) {
-        recyclerView.adapter = SimpleItemRecyclerViewAdapter(this, DummyContent.ITEMS, twoPane)
+        recyclerView.adapter = SimpleItemRecyclerViewAdapter(this, boardDTOs, twoPane)
     }
 
     class SimpleItemRecyclerViewAdapter(
         private val parentActivity: ItemListActivity,
-        private val values: List<DummyContent.DummyItem>,
+        private val values: List<BoardsDTO>,
         private val twoPane: Boolean
     ) :
         RecyclerView.Adapter<SimpleItemRecyclerViewAdapter.ViewHolder>() {
@@ -69,7 +119,7 @@ class ItemListActivity : AppCompatActivity() {
 
         init {
             onClickListener = View.OnClickListener { v ->
-                val item = v.tag as DummyContent.DummyItem
+                val item = v.tag as BoardsDTO
                 if (twoPane) {
                     val fragment = ItemDetailFragment().apply {
                         arguments = Bundle().apply {
@@ -98,7 +148,7 @@ class ItemListActivity : AppCompatActivity() {
         override fun onBindViewHolder(holder: ViewHolder, position: Int) {
             val item = values[position]
             holder.idView.text = item.id
-            holder.contentView.text = item.content
+            holder.contentView.text = item.name
 
             with(holder.itemView) {
                 tag = item
